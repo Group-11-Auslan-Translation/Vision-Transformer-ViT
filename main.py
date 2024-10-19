@@ -1,94 +1,114 @@
+### main.py ###
+
 import torch
 import torch.nn as nn
+from torch.utils.data import DataLoader, random_split
+from torchvision import transforms
+from vit import ViT
+from train import train_model, evaluate_model
+from custom_dataset import CustomImageDataset
+import matplotlib.pyplot as plt
 
-class PatchEmbedding(nn.Module):
-    """
-    Splits an image into patches and creates linear embeddings from those patches.
-    The input image is divided into fixed-size patches, flattened, and projected
-    into a lower-dimensional embedding space.
+# Device configuration (CPU or GPU)
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+print(f"Using device: {device}")
 
-    Args:
-        img_size (int): The size of the input image
-        patch_size (int): The size of each image patch
-        in_channels (int): Number of input image channels
-        embed_dim (int): Dimensionality of the linear patch embeddings.
-    """
-    def __init__(self, img_size=224, patch_size=16, in_channels=1, embed_dim=256):  # Embed_dim reduced to 256
-        super(PatchEmbedding, self).__init__()
-        self.patch_size = patch_size
-        # convolutional layer to "flatten" patches and project them to embedding space
-        self.projection = nn.Conv2d(in_channels, embed_dim, kernel_size=patch_size, stride=patch_size)
+# Hyperparameters
+num_epochs = 20
+batch_size = 8
+learning_rate = 0.001
+num_classes = 3
 
-    def forward(self, x):
-        x = self.projection(x)
-        x = x.flatten(2)
-        x = x.transpose(1, 2)  # Shape: [batch_size, num_patches, embed_dim]
-        return x
+# Define the transformation for images
+transform = transforms.Compose([
+    transforms.Resize((224, 224)),
+    transforms.RandomHorizontalFlip(),
+    transforms.RandomRotation(10),
+    transforms.ToTensor(),
+    transforms.Normalize((0.5,), (0.5,))
+])
 
-class PositionalEmbedding(nn.Module):
-    def __init__(self, num_patches, embed_dim):
-        super(PositionalEmbedding, self).__init__()
-        self.pos_embedding = nn.Parameter(torch.randn(1, num_patches + 1, embed_dim))  # Adjust num_patches for CLS token
+# Dataset Path
+dataset_path = '/dataset/'
 
-    def forward(self, x):
-        return x + self.pos_embedding
+# Full dataset for training and validation
+dataset = CustomImageDataset(img_dir=dataset_path, transform=transform)
 
-class TransformerEncoder(nn.Module):
-    def __init__(self, embed_dim=256, num_heads=4, hidden_dim=512, dropout=0.1):  # Simpler Transformer layer
-        super(TransformerEncoder, self).__init__()
-        self.ln1 = nn.LayerNorm(embed_dim)
-        self.attention = nn.MultiheadAttention(embed_dim, num_heads, dropout=dropout)
-        self.ln2 = nn.LayerNorm(embed_dim)
-        self.mlp = nn.Sequential(
-            nn.Linear(embed_dim, hidden_dim),
-            nn.GELU(),
-            nn.Linear(hidden_dim, embed_dim),
-            nn.Dropout(dropout),
-        )
+# Check if dataset is empty
+if len(dataset) == 0:
+    raise ValueError("The dataset is empty. Please check the dataset path and ensure there are images in the folders '0', '1', '2'.")
 
-    def forward(self, x):
-        attn_output, _ = self.attention(x, x, x)
-        x = self.ln1(x + attn_output)  # Residual connection
-        x = self.ln2(x + self.mlp(x))  # Residual connection
-        return x
+# Train-validation split
+val_split = 0.2
+val_size = int(len(dataset) * val_split)
+train_size = len(dataset) - val_size
 
-class ViT(nn.Module):
-    """
-    Simplified Vision Transformer (ViT) model for image classification.
-    Args:
-        img_size (int): The size of the input image (assumed to be square).
-        patch_size (int): The size of each image patch (assumed to be square).
-        num_classes (int): Number of classes for classification.
-        embed_dim (int): Dimensionality of the patch embeddings.
-        num_heads (int): Number of attention heads in the transformer encoder.
-        num_layers (int): Number of transformer encoder layers.
-    """
-    def __init__(self, img_size=224, patch_size=16, num_classes=10, embed_dim=256, num_heads=4, num_layers=4):  # Simplified model
-        super(ViT, self).__init__()
-        num_patches = (img_size // patch_size) ** 2
-        self.patch_embedding = PatchEmbedding(img_size, patch_size, embed_dim=embed_dim)
-        self.pos_embedding = PositionalEmbedding(num_patches, embed_dim)
-        self.cls_token = nn.Parameter(torch.randn(1, 1, embed_dim))
+if train_size == 0 or val_size == 0:
+    raise ValueError("Not enough data to split into training and validation sets. Please ensure the dataset has enough images.")
+
+train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
+train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
+
+# Initialize the model
+model = ViT(num_classes=num_classes).to(device)
+criterion = nn.CrossEntropyLoss()
+optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+
+# Train the model
+train_losses, val_accuracies, val_precisions, val_recalls, val_f1_scores = train_model(model, train_loader, val_loader, criterion, optimizer, num_epochs, device)
+
+# Plot training metrics
+plt.figure(figsize=(16, 12))
+
+# Plot training losses
+plt.subplot(2, 3, 1)
+plt.plot(range(1, num_epochs + 1), train_losses, label='Training Loss', color='b')
+plt.xlabel('Epoch')
+plt.ylabel('Loss')
+plt.title('Training Loss Progress')
+plt.legend()
+
+# Plot validation accuracies
+plt.subplot(2, 3, 2)
+plt.plot(range(1, num_epochs + 1), val_accuracies, label='Validation Accuracy', color='g')
+plt.xlabel('Epoch')
+plt.ylabel('Accuracy')
+plt.title('Validation Accuracy Progress')
+plt.legend()
+
+# Plot validation precisions
+plt.subplot(2, 3, 3)
+plt.plot(range(1, num_epochs + 1), val_precisions, label='Validation Precision', color='r')
+plt.xlabel('Epoch')
+plt.ylabel('Precision')
+plt.title('Validation Precision Progress')
+plt.legend()
+
+# Plot validation recalls
+plt.subplot(2, 3, 4)
+plt.plot(range(1, num_epochs + 1), val_recalls, label='Validation Recall', color='m')
+plt.xlabel('Epoch')
+plt.ylabel('Recall')
+plt.title('Validation Recall Progress')
+plt.legend()
+
+# Plot validation F1-scores
+plt.subplot(2, 3, 5)
+plt.plot(range(1, num_epochs + 1), val_f1_scores, label='Validation F1-Score', color='c')
+plt.xlabel('Epoch')
+plt.ylabel('F1-Score')
+plt.title('Validation F1-Score Progress')
+plt.legend()
+
+plt.tight_layout()
+plt.show()
+
+# Test dataset and evaluation
+test_dataset = CustomImageDataset(img_dir=dataset_path, transform=transform)
+test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+evaluate_model(model, test_loader, device)
 
 
-        self.transformer = nn.ModuleList([
-            TransformerEncoder(embed_dim, num_heads) for _ in range(num_layers)
-        ])
 
-        self.ln = nn.LayerNorm(embed_dim)
-        self.mlp_head = nn.Sequential(
-            nn.Linear(embed_dim, num_classes)
-        )
 
-    def forward(self, x):
-        batch_size = x.shape[0]
-        x = self.patch_embedding(x)
-        cls_tokens = self.cls_token.expand(batch_size, -1, -1)
-        x = torch.cat((cls_tokens, x), dim=1)  # Concatenate CLS token to patch embeddings
-        x = self.pos_embedding(x)
-
-        for layer in self.transformer:
-            x = layer(x)
-
-        cls_output = x[:, 0]
-        return self.mlp_head(self.ln(cls_output))

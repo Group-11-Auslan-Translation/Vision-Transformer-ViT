@@ -41,7 +41,7 @@ if __name__ == "__main__":
         transforms.Normalize((0.5,), (0.5,))
     ])
 
-    dataset_path = 'dataset'
+    dataset_path = '../Vit_video_transformer/dataset'
     dataset = CustomImageDataset(img_dir=dataset_path, transform=transform)
     print(f"Number of images in dataset: {len(dataset)}")
     image, label = dataset[0]
