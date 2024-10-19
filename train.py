@@ -1,134 +1,146 @@
-import os
-from PIL import Image
 import torch
-from torch import nn, optim
-from torch.utils.data import DataLoader, random_split, Dataset
-from torchvision import transforms
-from sklearn.metrics import accuracy_score
-from main_vit import ViT
+from sklearn.metrics import accuracy_score, classification_report
 
-# Device configuration (CPU or GPU)
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-print(f"Using device: {device}")
 
-# Hyperparameters
-num_epochs = 30
-batch_size = 2  # Adjust
-learning_rate = 1e-4
-num_classes = 10
+def train_model(model, train_loader, val_loader, criterion, optimizer, num_epochs, device):
+    best_val_acc = 0.0
+    train_losses = []
+    val_accuracies = []
+    val_precisions = []
+    val_recalls = []
+    val_f1_scores = []
 
-# Define the transformation for images
-transform = transforms.Compose([
-    transforms.Resize((224, 224)),  # Resize the image to 224x224 pixels
-    transforms.ToTensor(),  # Convert images to PyTorch tensors
-    transforms.Normalize((0.5,), (0.5,))  # Normalization for single channel images
-])
+    print(f"Using device: {device}")
+    for epoch in range(num_epochs):
+        model.train()
+        running_loss = 0.0
+        all_train_preds = []
+        all_train_labels = []
 
-# Custom Dataset for loading augmented images
-class CustomImageDataset(Dataset):
-    def __init__(self, img_dir, transform=None):
-        self.img_dir = img_dir
-        self.transform = transform
-
-        self.image_filenames = [f for f in os.listdir(img_dir) if f.endswith('.png')]
-
-    def __len__(self):
-        return len(self.image_filenames)
-
-    def __getitem__(self, idx):
-        img_name = os.path.join(self.img_dir, self.image_filenames[idx])
-        image = Image.open(img_name).convert('L')  # Open image as grayscale
-
-        label = int(self.image_filenames[idx][0])
-        if self.transform:
-            image = self.transform(image)
-        return image, label
-
-# Load dataset from the augmented images folder
-dataset = CustomImageDataset(img_dir='augmented_data/', transform=transform)
-
-# Train-validation split
-val_split = 0.2
-val_size = int(len(dataset) * val_split)
-train_size = len(dataset) - val_size
-train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
-
-train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
-
-# Initialize the model
-model = ViT(num_classes=num_classes).to(device)
-criterion = nn.CrossEntropyLoss()
-optimizer = optim.Adam(model.parameters(), lr=learning_rate)
-
-# Training loop
-best_val_acc = 0.0
-
-for epoch in range(num_epochs):
-    model.train()
-    running_loss = 0.0
-    all_train_preds = []
-    all_train_labels = []
-
-    for images, labels in train_loader:
-        images, labels = images.to(device), labels.to(device)
-
-        optimizer.zero_grad()
-        outputs = model(images)
-        loss = criterion(outputs, labels)
-        loss.backward()
-        optimizer.step()
-
-        running_loss += loss.item()
-        _, preds = torch.max(outputs, 1)
-        all_train_preds.extend(preds.cpu().numpy())
-        all_train_labels.extend(labels.cpu().numpy())
-
-    train_acc = accuracy_score(all_train_labels, all_train_preds)
-    print(f"Epoch [{epoch+1}/{num_epochs}] - Loss: {running_loss/len(train_loader):.4f}, Accuracy: {train_acc:.4f}")
-
-    # Validation phase
-    model.eval()
-    val_preds = []
-    val_labels = []
-    with torch.no_grad():
-        for images, labels in val_loader:
+        print(f"Epoch [{epoch + 1}/{num_epochs}] - Starting Training...")
+        for batch_idx, (images, labels) in enumerate(train_loader):
             images, labels = images.to(device), labels.to(device)
+
+            optimizer.zero_grad()
             outputs = model(images)
+            loss = criterion(outputs, labels)
+            loss.backward()
+            optimizer.step()
+
+            running_loss += loss.item()
             _, preds = torch.max(outputs, 1)
-            val_preds.extend(preds.cpu().numpy())
-            val_labels.extend(labels.cpu().numpy())
+            all_train_preds.extend(preds.cpu().numpy())
+            all_train_labels.extend(labels.cpu().numpy())
 
-    val_acc = accuracy_score(val_labels, val_preds)
-    print(f"Validation Accuracy: {val_acc:.4f}")
+            # Calculate accuracy for this batch
+            batch_train_acc = accuracy_score(labels.cpu().numpy(), preds.cpu().numpy())
 
-    if val_acc > best_val_acc:
-        best_val_acc = val_acc
-        torch.save(model.state_dict(), 'best_vit_auslan_model.pth')
-        print("Best model saved.")
+            # Batch Progress and Loss
+            print(
+                f"Training - Batch [{batch_idx + 1}/{len(train_loader)}], Loss: {loss.item():.4f}, Accuracy: {batch_train_acc:.4f}, Progress: {100 * (batch_idx + 1) / len(train_loader):.2f}%")
 
-# After training, load the best model and test it on the same augmented images
-model.load_state_dict(torch.load('best_vit_auslan_model.pth', map_location=device))
-model.eval()
+        avg_train_loss = running_loss / len(train_loader)
+        train_acc = accuracy_score(all_train_labels, all_train_preds)
+        train_losses.append(avg_train_loss)
+        print(
+            f"Epoch [{epoch + 1}/{num_epochs}] - Training Complete - Avg Loss: {avg_train_loss:.4f}, Avg Accuracy: {train_acc:.4f}")
 
-# Test the model on the augmented images
-all_preds = []
-true_labels = [int(f[0]) for f in dataset.image_filenames]  # Infer true labels from filenames
+        # Validation phase
+        model.eval()
+        val_preds = []
+        val_labels = []
+        running_val_loss = 0.0  # Track validation loss
+        with torch.no_grad():
+            for batch_idx, (images, labels) in enumerate(val_loader):
+                print(
+                    f"Epoch [{epoch + 1}/{num_epochs}] - Validation - Batch [{batch_idx + 1}/{len(val_loader)}] - Fetching data...")
 
-for img_name in dataset.image_filenames:
-    img_path = os.path.join('augmented_data/', img_name)
-    image = Image.open(img_path).convert('L')  # Open image as grayscale
-    image = transform(image).unsqueeze(0).to(device)  # Preprocess and add batch dimension
+                images, labels = images.to(device), labels.to(device)
 
+                print(
+                    f"Epoch [{epoch + 1}/{num_epochs}] - Validation - Batch [{batch_idx + 1}/{len(val_loader)}] - Data fetched.")
+
+                outputs = model(images)
+                loss = criterion(outputs, labels)  # Validation loss for each batch
+                running_val_loss += loss.item()
+                _, preds = torch.max(outputs, 1)
+                val_preds.extend(preds.cpu().numpy())
+                val_labels.extend(labels.cpu().numpy())
+
+                # Calculate accuracy for this validation batch
+                batch_val_acc = accuracy_score(labels.cpu().numpy(), preds.cpu().numpy())
+
+                # Batch-wise validation accuracy and loss
+                print(
+                    f"Validation - Batch [{batch_idx + 1}/{len(val_loader)}], Loss: {loss.item():.4f}, Accuracy: {batch_val_acc:.4f}, Progress: {100 * (batch_idx + 1) / len(val_loader):.2f}%")
+
+        val_acc = accuracy_score(val_labels, val_preds)
+        avg_val_loss = running_val_loss / len(val_loader)  # Avg validation loss for the epoch
+        classification_report_dict = classification_report(val_labels, val_preds, output_dict=True)
+        val_accuracies.append(val_acc)
+        val_precisions.append(classification_report_dict['macro avg']['precision'])
+        val_recalls.append(classification_report_dict['macro avg']['recall'])
+        val_f1_scores.append(classification_report_dict['macro avg']['f1-score'])
+
+        print(
+            f"Epoch [{epoch + 1}/{num_epochs}] - Validation Complete - Avg Loss: {avg_val_loss:.4f}, Accuracy: {val_acc:.4f}, Precision: {classification_report_dict['macro avg']['precision']:.4f}, Recall: {classification_report_dict['macro avg']['recall']:.4f}, F1-Score: {classification_report_dict['macro avg']['f1-score']:.4f}")
+
+        if val_acc > best_val_acc:
+            best_val_acc = val_acc
+            torch.save(model.state_dict(), 'best_vit_model.pth')
+            print("Best model saved.")
+
+    return train_losses, val_accuracies, val_precisions, val_recalls, val_f1_scores
+
+
+def evaluate_model(model, test_loader, criterion, device):
+    model.eval()  # Set the model to evaluation mode
+    y_true = []
+    y_pred = []
+    correct = 0
+    total = 0
+    running_test_loss = 0.0  # To track the total test loss
     with torch.no_grad():
-        output = model(image)
-        _, pred = torch.max(output, 1)
-        all_preds.append(pred.item())
+        for batch_idx, (images, labels) in enumerate(test_loader):
+            print(f"Testing - Batch [{batch_idx + 1}/{len(test_loader)}] - Fetching data...")
 
-# Display test predictions
-for i, pred in enumerate(all_preds):
-    print(f"Image {dataset.image_filenames[i]} - True Label: {true_labels[i]}, Predicted Label: {pred}")
+            images, labels = images.to(device), labels.to(device)
 
-# Calculate accuracy on test images
-accuracy = sum([1 for i, pred in enumerate(all_preds) if pred == true_labels[i]]) / len(all_preds)
-print(f"Test Accuracy: {accuracy * 100:.2f}%")
+            print(f"Testing - Batch [{batch_idx + 1}/{len(test_loader)}] - Data fetched.")
+
+            outputs = model(images)
+            loss = criterion(outputs, labels)  # Calculate loss for this batch
+            running_test_loss += loss.item()
+
+            _, predicted = torch.max(outputs.data, 1)  # Get the predicted class
+            total += labels.size(0)
+            correct += (predicted == labels).sum().item()  # Count correct predictions
+
+            y_true.extend(labels.cpu().numpy())  # Append true labels
+            y_pred.extend(predicted.cpu().numpy())  # Append predicted labels
+
+            # Calculate accuracy for this batch
+            batch_test_acc = accuracy_score(labels.cpu().numpy(), predicted.cpu().numpy())
+
+            # Print batch-wise accuracy and loss
+            print(
+                f"Testing - Batch [{batch_idx + 1}/{len(test_loader)}], Loss: {loss.item():.4f}, Accuracy: {batch_test_acc:.4f}, Progress: {100 * (batch_idx + 1) / len(test_loader):.2f}%")
+
+    # Calculate overall accuracy for the test set
+    accuracy = 100 * correct / total
+    avg_test_loss = running_test_loss / len(test_loader)  # Average test loss for the entire test set
+    classification_report_dict = classification_report(y_true, y_pred, output_dict=True)
+
+    # Print the final evaluation results
+    print(f'Test Complete - Avg Loss: {avg_test_loss:.4f}, Accuracy: {accuracy:.2f}%')
+    print(f"Precision: {classification_report_dict['macro avg']['precision']:.2f}")
+    print(f"Recall: {classification_report_dict['macro avg']['recall']:.2f}")
+    print(f"F1-Score: {classification_report_dict['macro avg']['f1-score']:.2f}")
+
+    return {
+        "final_test_accuracy": accuracy,
+        "avg_test_loss": avg_test_loss,
+        "precision": classification_report_dict["macro avg"]["precision"],
+        "recall": classification_report_dict["macro avg"]["recall"],
+        "f1-score": classification_report_dict["macro avg"]["f1-score"]
+    }
