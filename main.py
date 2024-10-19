@@ -1,5 +1,3 @@
-### main.py ###
-
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, random_split
@@ -21,11 +19,11 @@ num_classes = 3
 
 # Define the transformation for images
 transform = transforms.Compose([
-    transforms.Resize((224, 224)),
-    transforms.RandomHorizontalFlip(),
-    transforms.RandomRotation(10),
-    transforms.ToTensor(),
-    transforms.Normalize((0.5,), (0.5,))
+    transforms.Resize((224, 224)),              # Resize images to 224x224 pixels
+    transforms.RandomHorizontalFlip(),          # Randomly flip images horizontally
+    transforms.RandomRotation(10),              # Randomly rotate images by up to 10 degrees
+    transforms.ToTensor(),                      # Convert images to PyTorch tensors
+    transforms.Normalize((0.5,), (0.5,))        # Normalize image pixel values (mean=0.5, std=0.5)
 ])
 
 # Dataset Path
@@ -39,24 +37,34 @@ if len(dataset) == 0:
     raise ValueError("The dataset is empty. Please check the dataset path and ensure there are images in the folders '0', '1', '2'.")
 
 # Train-validation split
-val_split = 0.2
+val_split = 0.2  # 20% of the data will be used for validation
 val_size = int(len(dataset) * val_split)
 train_size = len(dataset) - val_size
 
+# Ensure there are enough images to split into training and validation sets
 if train_size == 0 or val_size == 0:
     raise ValueError("Not enough data to split into training and validation sets. Please ensure the dataset has enough images.")
 
+# Split the dataset into training and validation sets
 train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
+
+# Create data loaders for training and validation
 train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
 
-# Initialize the model
+# Initialize the ViT model
 model = ViT(num_classes=num_classes).to(device)
+
+# Loss function (Cross-Entropy Loss for classification)
 criterion = nn.CrossEntropyLoss()
+
+# Optimizer (Adam optimizer for model parameters)
 optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
 
 # Train the model
-train_losses, val_accuracies, val_precisions, val_recalls, val_f1_scores = train_model(model, train_loader, val_loader, criterion, optimizer, num_epochs, device)
+train_losses, val_accuracies, val_precisions, val_recalls, val_f1_scores = train_model(
+    model, train_loader, val_loader, criterion, optimizer, num_epochs, device
+)
 
 # Plot training metrics
 plt.figure(figsize=(16, 12))
@@ -101,14 +109,13 @@ plt.ylabel('F1-Score')
 plt.title('Validation F1-Score Progress')
 plt.legend()
 
+# Adjust layout and display the plots
 plt.tight_layout()
 plt.show()
 
 # Test dataset and evaluation
 test_dataset = CustomImageDataset(img_dir=dataset_path, transform=transform)
 test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+
+# Evaluate the model on the test set
 evaluate_model(model, test_loader, device)
-
-
-
-
