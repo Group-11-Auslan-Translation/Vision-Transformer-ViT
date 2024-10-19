@@ -1,125 +1,134 @@
+import os
+from PIL import Image
 import torch
-from torch import optim, nn
-from torch.utils.data import DataLoader, random_split
-from torchvision import datasets, transforms
-import torchvision.transforms.functional as TF
-from main import ViT
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
+from torch import nn, optim
+from torch.utils.data import DataLoader, random_split, Dataset
+from torchvision import transforms
+from sklearn.metrics import accuracy_score
+from main_vit import ViT
 
-
-# Check if GPU is available and use it, otherwise fallback to CPU
+# Device configuration (CPU or GPU)
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(f"Using device: {device}")
 
 # Hyperparameters
-num_epochs = 20  # Number of training epochs
-batch_size = 4  # Batch size for training
-learning_rate = 0.001  # Learning rate for the optimizer
-num_classes = 10  # Number of classes (digits 0-9)
-validation_split = 0.2
+num_epochs = 30
+batch_size = 2  # Adjust
+learning_rate = 1e-4
+num_classes = 10
 
-# Define transformations for grayscale and optional Gaussian noise (comment out noise if not needed)
+# Define the transformation for images
 transform = transforms.Compose([
     transforms.Resize((224, 224)),  # Resize the image to 224x224 pixels
     transforms.ToTensor(),  # Convert images to PyTorch tensors
-    transforms.Normalize((0.5,), (0.5,))  # Normalization for single channel
+    transforms.Normalize((0.5,), (0.5,))  # Normalization for single channel images
 ])
 
-# Load the dataset
-dataset = datasets.ImageFolder(root='dataset/train', transform=transform)
+# Custom Dataset for loading augmented images
+class CustomImageDataset(Dataset):
+    def __init__(self, img_dir, transform=None):
+        self.img_dir = img_dir
+        self.transform = transform
 
-# Split the dataset into training and validation sets
-total_size = len(dataset)
-val_size = int(total_size * validation_split)
-train_size = total_size - val_size
+        self.image_filenames = [f for f in os.listdir(img_dir) if f.endswith('.png')]
+
+    def __len__(self):
+        return len(self.image_filenames)
+
+    def __getitem__(self, idx):
+        img_name = os.path.join(self.img_dir, self.image_filenames[idx])
+        image = Image.open(img_name).convert('L')  # Open image as grayscale
+
+        label = int(self.image_filenames[idx][0])
+        if self.transform:
+            image = self.transform(image)
+        return image, label
+
+# Load dataset from the augmented images folder
+dataset = CustomImageDataset(img_dir='augmented_data/', transform=transform)
+
+# Train-validation split
+val_split = 0.2
+val_size = int(len(dataset) * val_split)
+train_size = len(dataset) - val_size
 train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
 
-# Create data loaders for training and validation
-train_loader = DataLoader(dataset=train_dataset, batch_size=batch_size, shuffle=True)
-val_loader = DataLoader(dataset=val_dataset, batch_size=batch_size, shuffle=False)
+train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
 
-# Initialize the Vision Transformer model, loss function, and optimizer
-model = ViT(num_classes=num_classes).to(device)  # Move model to the chosen device (GPU/CPU)
-criterion = nn.CrossEntropyLoss()  # Loss function for multi-class classification
-optimizer = optim.Adam(model.parameters(), lr=learning_rate)  # Adam optimizer
-
-best_val_f1 = 0.0
+# Initialize the model
+model = ViT(num_classes=num_classes).to(device)
+criterion = nn.CrossEntropyLoss()
+optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
 # Training loop
+best_val_acc = 0.0
+
 for epoch in range(num_epochs):
-    model.train()  # Set model to training mode
-    running_loss = 0.0  # Track the total loss for this epoch
-    all_preds = []  # List to store predictions
-    all_labels = []  # List to store ground truth labels
+    model.train()
+    running_loss = 0.0
+    all_train_preds = []
+    all_train_labels = []
 
-    # Loop through the training data
     for images, labels in train_loader:
-        images = images.to(device)  # Move images to the device
-        labels = labels.to(device)  # Move labels to the device
+        images, labels = images.to(device), labels.to(device)
 
-        optimizer.zero_grad()  # Clear the gradients of the optimizer
-        outputs = model(images)  # Forward pass: compute model predictions
-        loss = criterion(outputs, labels)  # Compute the loss
-        loss.backward()  # Backpropagate the gradients
-        optimizer.step()  # Update the model parameters
+        optimizer.zero_grad()
+        outputs = model(images)
+        loss = criterion(outputs, labels)
+        loss.backward()
+        optimizer.step()
 
-        running_loss += loss.item()  # Accumulate the running loss
-
-        # Convert outputs to predicted class labels
+        running_loss += loss.item()
         _, preds = torch.max(outputs, 1)
-        all_preds.extend(preds.cpu().numpy())  # Store the predictions
-        all_labels.extend(labels.cpu().numpy())  # Store the true labels
+        all_train_preds.extend(preds.cpu().numpy())
+        all_train_labels.extend(labels.cpu().numpy())
 
-    # Calculate training metrics
-    train_accuracy = accuracy_score(all_labels, all_preds)
-    train_precision = precision_score(all_labels, all_preds, average='macro', zero_division=0)
-    train_recall = recall_score(all_labels, all_preds, average='macro', zero_division=0)
-    train_f1 = f1_score(all_labels, all_preds, average='macro', zero_division=0)
+    train_acc = accuracy_score(all_train_labels, all_train_preds)
+    print(f"Epoch [{epoch+1}/{num_epochs}] - Loss: {running_loss/len(train_loader):.4f}, Accuracy: {train_acc:.4f}")
 
     # Validation phase
-    model.eval()  # Set model to evaluation mode
-    val_running_loss = 0.0  # Track validation loss
-    val_preds = []  # List to store validation predictions
-    val_labels = []  # List to store validation labels
-
-    with torch.no_grad():  # Disable gradient calculation during validation
+    model.eval()
+    val_preds = []
+    val_labels = []
+    with torch.no_grad():
         for images, labels in val_loader:
-            images = images.to(device)
-            labels = labels.to(device)
-
+            images, labels = images.to(device), labels.to(device)
             outputs = model(images)
-            loss = criterion(outputs, labels)
-            val_running_loss += loss.item()
-
             _, preds = torch.max(outputs, 1)
             val_preds.extend(preds.cpu().numpy())
             val_labels.extend(labels.cpu().numpy())
 
-    # Calculate validation metrics
-    val_accuracy = accuracy_score(val_labels, val_preds)
-    val_precision = precision_score(val_labels, val_preds, average='macro', zero_division=0)
-    val_recall = recall_score(val_labels, val_preds, average='macro', zero_division=0)
-    val_f1 = f1_score(val_labels, val_preds, average='macro', zero_division=0)
+    val_acc = accuracy_score(val_labels, val_preds)
+    print(f"Validation Accuracy: {val_acc:.4f}")
 
-    # Print training and validation metrics
-    print(f"Epoch [{epoch+1}/{num_epochs}]")
-    print(f"Train Loss: {running_loss/len(train_loader):.4f} | "
-          f"Train Acc: {train_accuracy:.4f} | "
-          f"Train Precision: {train_precision:.4f} | "
-          f"Train Recall: {train_recall:.4f} | "
-          f"Train F1: {train_f1:.4f}")
-    print(f"Val Loss: {val_running_loss/len(val_loader):.4f} | "
-          f"Val Acc: {val_accuracy:.4f} | "
-          f"Val Precision: {val_precision:.4f} | "
-          f"Val Recall: {val_recall:.4f} | "
-          f"Val F1: {val_f1:.4f}\n")
-
-    # Save the model with the best validation F1 score
-    if val_f1 > best_val_f1:
-        best_val_f1 = val_f1
+    if val_acc > best_val_acc:
+        best_val_acc = val_acc
         torch.save(model.state_dict(), 'best_vit_auslan_model.pth')
         print("Best model saved.")
 
-# Save the final trained model
-torch.save(model.state_dict(), 'vit_custom_auslan_model.pth')
-print("Training complete. Model saved as vit_custom_auslan_model.pth")
+# After training, load the best model and test it on the same augmented images
+model.load_state_dict(torch.load('best_vit_auslan_model.pth', map_location=device))
+model.eval()
+
+# Test the model on the augmented images
+all_preds = []
+true_labels = [int(f[0]) for f in dataset.image_filenames]  # Infer true labels from filenames
+
+for img_name in dataset.image_filenames:
+    img_path = os.path.join('augmented_data/', img_name)
+    image = Image.open(img_path).convert('L')  # Open image as grayscale
+    image = transform(image).unsqueeze(0).to(device)  # Preprocess and add batch dimension
+
+    with torch.no_grad():
+        output = model(image)
+        _, pred = torch.max(output, 1)
+        all_preds.append(pred.item())
+
+# Display test predictions
+for i, pred in enumerate(all_preds):
+    print(f"Image {dataset.image_filenames[i]} - True Label: {true_labels[i]}, Predicted Label: {pred}")
+
+# Calculate accuracy on test images
+accuracy = sum([1 for i, pred in enumerate(all_preds) if pred == true_labels[i]]) / len(all_preds)
+print(f"Test Accuracy: {accuracy * 100:.2f}%")
