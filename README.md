@@ -16,7 +16,7 @@ The Vision Transformer (ViT) model processes images by dividing them into small 
 This project focuses on classifying Auslan hand sign digits from grayscale images using the ViT architecture. The model is designed to handle real-world variability in hand signs and is tested on a dataset of 20,000 images.
 
 ## Model Architecture
-The ViT model architecture used in this project includes:
+The custom ViT model architecture used in this project includes:
 - **Patch Embedding**: Each input image is divided into fixed-size patches (e.g., 16x16). These patches are flattened and passed through a linear layer to generate embeddings.
 - **Positional Embedding**: To retain spatial information, positional embeddings are added to the patch embeddings.
 - **Transformer Encoder**: The embedded patches are processed through a series of transformer encoder layers. Each encoder consists of:
@@ -25,10 +25,10 @@ The ViT model architecture used in this project includes:
 - **Classification Token ([CLS])**: A special token is added to the sequence, whose output is used for classification.
 - **MLP Head**: After processing the embedded patches, the output of the [CLS] token is passed through a fully connected layer to predict the class.
 
-For more details, see the diagram below (from the `ViT_model_diagram.png` file in this repo).
+Since custom model architecture gave very low accuracy, pretrained ViT model was used.
 
 ## Dataset
-The dataset consists of 20,000 grayscale images of Auslan hand signs representing digits (0-9). Each image is 224x224 pixels, organized into folders named by the respective digits. Images were augmented using techniques such as random rotation, horizontal flipping, and Gaussian blur to improve model generalization.
+The dataset consists of more than 70,000 grayscale images of Auslan hand signs representing digits (0-9) and alphabets (A-Z) resulting in 36 classes. Each image is 224x224 pixels, organized into folders named by the respective digits. Images were augmented using techniques such as random rotation, horizontal flipping, and Gaussian blur to improve model generalization.
 
 ### Dataset Structure:
 ```
@@ -50,21 +50,17 @@ data/
 
 
 ## Training Process
-The model is trained on the 20,000 images, with an 80/20 train-validation split. Training involves:
+The model is trained on the 70,000 images, with an 80/20 train-validation split. Training involves:
 - **Optimizer**: Adam optimizer with a learning rate of 1e-4.
 - **Loss Function**: Cross-entropy loss with class weighting to handle class imbalance.
-- **Batch Size**: 4.
-- **Epochs**: 20 epochs with early stopping based on validation accuracy.
+- **Batch Size**: 16.
+- **Epochs**: 15 epochs with early stopping based on validation accuracy.
 
 Training metrics such as loss, accuracy, precision, recall, and F1-score are tracked across epochs.
 
 ## Results
-Here are the key results from training and validation:
+The pretrained ViT model reach accuracy of 98.86%.
 
-- **Training Loss**: The training loss decreases steadily over epochs, indicating that the model is learning effectively.
-- **Validation Accuracy**: Fluctuating, suggesting that the model needs further generalization improvements.
-- **Precision/Recall/F1-Score**: These metrics are relatively low, signaling that the model struggles to consistently identify all classes accurately.
-
-Visual results for loss, accuracy, precision, recall, and F1-score are available in the `results/` folder.
+Visual results are available in the `results/` folder.
 
 

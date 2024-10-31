@@ -1,6 +1,6 @@
 import torch
-from sklearn.metrics import accuracy_score, classification_report
-
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, classification_report
+import numpy as np
 
 def train_model(model, train_loader, val_loader, criterion, optimizer, num_epochs, device):
     """
@@ -18,9 +18,14 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, num_epoch
     Returns:
         tuple: A tuple containing:
             - train_losses (list): List of average training losses for each epoch.
+            - val_losses (list): List of validation losses for each epoch.
+            - train_accuracies (list): List of training accuracies for each epoch.
             - val_accuracies (list): List of validation accuracies for each epoch.
+            - train_precisions (list): List of training precisions for each epoch.
             - val_precisions (list): List of validation precisions for each epoch.
+            - train_recalls (list): List of training recalls for each epoch.
             - val_recalls (list): List of validation recalls for each epoch.
+            - train_f1_scores (list): List of training F1-scores for each epoch.
             - val_f1_scores (list): List of validation F1-scores for each epoch.
     """
     best_val_acc = 0.0  # Track the best validation accuracy
@@ -62,6 +67,12 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, num_epoch
             all_train_preds.extend(preds.cpu().numpy())
             all_train_labels.extend(labels.cpu().numpy())
 
+            # Calculate accuracy for this training batch
+            batch_train_acc = accuracy_score(labels.cpu().numpy(), preds.cpu().numpy())
+            print(
+                f"Training - Batch [{batch_idx + 1}/{len(train_loader)}], Loss: {loss.item():.4f}, Accuracy: {batch_train_acc:.4f}, Progress: {100 * (batch_idx + 1) / len(train_loader):.2f}%"
+            )
+
         # Calculate training metrics after all batches are processed
         avg_train_loss = running_loss / len(train_loader)
         train_acc = accuracy_score(all_train_labels, all_train_preds)
@@ -76,8 +87,18 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, num_epoch
         train_recalls.append(train_recall)
         train_f1_scores.append(train_f1)
 
-        print(f"Epoch [{epoch + 1}/{num_epochs}] - Training Complete - Avg Loss: {avg_train_loss:.4f}, "
-              f"Accuracy: {train_acc:.4f}, Precision: {train_precision:.4f}, Recall: {train_recall:.4f}, F1-Score: {train_f1:.4f}")
+        # Calculate class-wise accuracies
+        unique_classes = np.unique(all_train_labels)
+        train_class_accuracies = {str(c): 0.0 for c in unique_classes}
+        for c in unique_classes:
+            class_indices = np.where(np.array(all_train_labels) == c)[0]
+            if len(class_indices) > 0:
+                train_class_accuracies[str(c)] = accuracy_score(
+                    np.array(all_train_labels)[class_indices],
+                    np.array(all_train_preds)[class_indices]
+                )
+
+        print(f"Epoch [{epoch + 1}/{num_epochs}] - Class-wise Training Accuracies: {train_class_accuracies}")
 
         # Validation phase
         model.eval()  # Set the model to evaluation mode
@@ -113,6 +134,19 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, num_epoch
         val_recalls.append(classification_report_dict['macro avg']['recall'])
         val_f1_scores.append(classification_report_dict['macro avg']['f1-score'])
 
+        # Calculate class-wise validation accuracies
+        unique_classes_val = np.unique(val_labels)
+        val_class_accuracies = {str(c): 0.0 for c in unique_classes_val}
+        for c in unique_classes_val:
+            class_indices = np.where(np.array(val_labels) == c)[0]
+            if len(class_indices) > 0:
+                val_class_accuracies[str(c)] = accuracy_score(
+                    np.array(val_labels)[class_indices],
+                    np.array(val_preds)[class_indices]
+                )
+
+        print(f"Epoch [{epoch + 1}/{num_epochs}] - Class-wise Validation Accuracies: {val_class_accuracies}")
+
         print(
             f"Epoch [{epoch + 1}/{num_epochs}] - Validation Complete - Avg Loss: {avg_val_loss:.4f}, Accuracy: {val_acc:.4f}, Precision: {classification_report_dict['macro avg']['precision']:.4f}, Recall: {classification_report_dict['macro avg']['recall']:.4f}, F1-Score: {classification_report_dict['macro avg']['f1-score']:.4f}")
 
@@ -143,7 +177,7 @@ def evaluate_model(model, test_loader, device):
     total = 0  # Total number of samples
     running_test_loss = 0.0  # Track total test loss
 
-    with torch.no_grad():  # Disable gradient calculations during testing
+    with torch.no_grad():
         for batch_idx, (images, labels) in enumerate(test_loader):
             images, labels = images.to(device), labels.to(device)
 
@@ -160,17 +194,29 @@ def evaluate_model(model, test_loader, device):
 
     # Calculate overall test accuracy
     accuracy = 100 * correct / total
-    #classification_report_dict = classification_report(y_true, y_pred, output_dict=True)
     classification_report_dict = classification_report(y_true, y_pred, output_dict=True, zero_division=0)
+
+    # Calculate class-wise test accuracies
+    unique_classes_test = np.unique(y_true)
+    test_class_accuracies = {str(c): 0.0 for c in unique_classes_test}
+    for c in unique_classes_test:
+        class_indices = np.where(np.array(y_true) == c)[0]
+        if len(class_indices) > 0:
+            test_class_accuracies[str(c)] = accuracy_score(
+                np.array(y_true)[class_indices],
+                np.array(y_pred)[class_indices]
+            )
 
     print(f'Test Complete - Accuracy: {accuracy:.2f}%')
     print(f"Precision: {classification_report_dict['macro avg']['precision']:.2f}")
     print(f"Recall: {classification_report_dict['macro avg']['recall']:.2f}")
     print(f"F1-Score: {classification_report_dict['macro avg']['f1-score']:.2f}")
+    print(f"Class-wise Test Accuracies: {test_class_accuracies}")
 
     return {
         "final_test_accuracy": accuracy,
         "precision": classification_report_dict["macro avg"]["precision"],
         "recall": classification_report_dict["macro avg"]["recall"],
-        "f1-score": classification_report_dict["macro avg"]["f1-score"]
+        "f1-score": classification_report_dict["macro avg"]["f1-score"],
+        "class_accuracies": test_class_accuracies  # Add class-wise accuracies to return
     }
