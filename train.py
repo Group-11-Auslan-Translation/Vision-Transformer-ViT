@@ -1,5 +1,6 @@
 import torch
-from sklearn.metrics import accuracy_score, classification_report
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, classification_report
+
 
 
 def train_model(model, train_loader, val_loader, criterion, optimizer, num_epochs, device):
@@ -61,6 +62,12 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, num_epoch
             _, preds = torch.max(outputs, 1)  # Get the predicted class
             all_train_preds.extend(preds.cpu().numpy())
             all_train_labels.extend(labels.cpu().numpy())
+
+            # Calculate accuracy for this training batch
+            batch_train_acc = accuracy_score(labels.cpu().numpy(), preds.cpu().numpy())
+            print(
+                f"Training - Batch [{batch_idx + 1}/{len(train_loader)}], Loss: {loss.item():.4f}, Accuracy: {batch_train_acc:.4f}, Progress: {100 * (batch_idx + 1) / len(train_loader):.2f}%"
+            )
 
         # Calculate training metrics after all batches are processed
         avg_train_loss = running_loss / len(train_loader)
@@ -143,7 +150,7 @@ def evaluate_model(model, test_loader, device):
     total = 0  # Total number of samples
     running_test_loss = 0.0  # Track total test loss
 
-    with torch.no_grad():  # Disable gradient calculations during testing
+    with torch.no_grad():
         for batch_idx, (images, labels) in enumerate(test_loader):
             images, labels = images.to(device), labels.to(device)
 

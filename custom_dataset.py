@@ -29,10 +29,31 @@ class CustomImageDataset(Dataset):
         self.image_filenames = []
         self.labels = []
 
-        # Loop through each folder (class) and collect image paths and labels
-        for label in sorted(os.listdir(img_dir)):
-            folder_path = os.path.join(img_dir, label)
-            if os.path.isdir(folder_path) and label.isdigit():  # Ensure the folder name is a digit
+        # Map each folder name (class) to a unique integer label
+        self.class_names = sorted(os.listdir(img_dir))
+        self.class_to_idx = {class_name: idx for idx, class_name in enumerate(self.class_names)}
+
+        # # Loop through each folder (class) and collect image paths and labels
+        # for label in sorted(os.listdir(img_dir)):
+        #     folder_path = os.path.join(img_dir, label)
+        #     if os.path.isdir(folder_path) and label.isdigit():  # Ensure the folder name is a digit
+        #         # Collect image files with '.jpg' or '.png' extension
+        #         files = [file_name for file_name in os.listdir(folder_path)
+        #                  if file_name.endswith('.jpg') or file_name.endswith('.png')]
+        #
+        #         # Limit the number of files per class if needed
+        #         if limit_per_class:
+        #             files = files[:limit_per_class]
+        #
+        #         # Append each image path and its label (folder name) to the respective lists
+        #         for file_name in files:
+        #             self.image_filenames.append(os.path.join(folder_path, file_name))
+        #             self.labels.append(int(label))
+
+        # Loop through each folder and collect image paths and labels
+        for class_name in self.class_names:
+            folder_path = os.path.join(img_dir, class_name)
+            if os.path.isdir(folder_path):
                 # Collect image files with '.jpg' or '.png' extension
                 files = [file_name for file_name in os.listdir(folder_path)
                          if file_name.endswith('.jpg') or file_name.endswith('.png')]
@@ -41,10 +62,10 @@ class CustomImageDataset(Dataset):
                 if limit_per_class:
                     files = files[:limit_per_class]
 
-                # Append each image path and its label (folder name) to the respective lists
+                # Append each image path and its mapped label
                 for file_name in files:
                     self.image_filenames.append(os.path.join(folder_path, file_name))
-                    self.labels.append(int(label))
+                    self.labels.append(self.class_to_idx[class_name])  # Use mapped integer label
 
     def __len__(self):
         """
@@ -82,7 +103,7 @@ if __name__ == "__main__":
         transforms.Normalize((0.5,), (0.5,))  # Normalize pixel values to have mean 0.5 and std 0.5
     ])
 
-    dataset_path = '/content/drive/MyDrive/ViT/datas/'  # Path to the dataset
+    dataset_path = '/content/drive/MyDrive/ViT/data_alphabets_digits/'  # Path to the dataset
     dataset = CustomImageDataset(img_dir=dataset_path, transform=transform)
 
     # Output the total number of images and details of the first image

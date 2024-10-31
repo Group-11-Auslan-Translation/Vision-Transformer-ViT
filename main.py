@@ -8,16 +8,17 @@ from custom_dataset import CustomImageDataset
 import matplotlib.pyplot as plt
 from sklearn.utils.class_weight import compute_class_weight
 import numpy as np
+from timm import create_model
 
 # Device configuration (CPU or GPU)
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(f"Using device: {device}")
 
 # Hyperparameters
-num_epochs = 20
-batch_size = 4
+num_epochs = 15
+batch_size = 16
 learning_rate = 1e-4
-num_classes = 10
+num_classes = 36
 
 # Define the transformation for images
 # transform = transforms.Compose([
@@ -41,7 +42,7 @@ transform = transforms.Compose([
 ])
 
 # Dataset Path
-dataset_path = '/content/drive/MyDrive/ViT/data/'
+dataset_path = '/content/drive/MyDrive/ViT/data_alphabets_digits/'
 
 # dataset for training and validation
 # dataset = CustomImageDataset(img_dir=dataset_path, transform=transform, limit_per_class = 600)
@@ -58,28 +59,28 @@ val_size = int(len(dataset) * val_split)
 train_size = len(dataset) - val_size
 
 # Collect labels and print progress
-all_labels = []
-for i, (_, label) in enumerate(dataset):
-    all_labels.append(label)
-
-    # Print progress every 100 labels processed
-    if (i + 1) % 100 == 0:
-        print(f"Processed {i + 1} labels")
-
-# After collecting all labels, print the total count
-print(f"Total labels processed: {len(all_labels)}")
+# all_labels = []
+# for i, (_, label) in enumerate(dataset):
+#     all_labels.append(label)
+#
+#     # Print progress every 100 labels processed
+#     if (i + 1) % 100 == 0:
+#         print(f"Processed {i + 1} labels")
+#
+# # After collecting all labels, print the total count
+# print(f"Total labels processed: {len(all_labels)}")
 
 # Compute class weights
-class_weights = compute_class_weight(class_weight='balanced', classes=np.unique(all_labels), y=all_labels)
+#class_weights = compute_class_weight(class_weight='balanced', classes=np.unique(all_labels), y=all_labels)
 
 # Print the class weights to check their values
-print(f"Class weights: {class_weights}")
+#print(f"Class weights: {class_weights}")
 
 # Convert class weights to a tensor and move to the device (GPU/CPU)
-class_weights = torch.tensor(class_weights, dtype=torch.float).to(device)
+#class_weights = torch.tensor(class_weights, dtype=torch.float).to(device)
 
 # Print the final tensor for confirmation
-print(f"Class weights as tensor: {class_weights}")
+#print(f"Class weights as tensor: {class_weights}")
 
 # Ensure there are enough images to split into training and validation sets
 if train_size == 0 or val_size == 0:
@@ -90,15 +91,18 @@ if train_size == 0 or val_size == 0:
 train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
 
 # Create data loaders for training and validation
-train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
+# train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+# val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
+train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=8, pin_memory=True)
+val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False,num_workers=8, pin_memory=True)
 
 # Initialize the ViT model
-model = ViT(num_classes=num_classes).to(device)
+#model = ViT(num_classes=num_classes).to(device)
+model = create_model('vit_base_patch16_224', pretrained=True, in_chans=1, num_classes=num_classes).to(device)
 
 # Loss function (Cross-Entropy Loss for classification)
-# criterion = nn.CrossEntropyLoss()
-criterion = nn.CrossEntropyLoss(weight=class_weights)
+criterion = nn.CrossEntropyLoss()
+# criterion = nn.CrossEntropyLoss(weight=class_weights)
 
 # # Initialize the ViT model (Using pre-trained model from timm)
 # from timm import create_model
